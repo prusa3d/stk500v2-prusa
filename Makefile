@@ -34,7 +34,7 @@
 
 
 # MCU name
-#MCU = atmega128
+MCU = atmega2560
 
 
 # Processor frequency.
@@ -42,7 +42,7 @@
 #     processor frequency. You can then use this symbol in your source code to 
 #     calculate timings. Do NOT tack on a 'UL' at the end, this will be done
 #     automatically to create a 32-bit value in your source code.
-#F_CPU = 16000000
+F_CPU = 16000000
 
 
 # Bootloader
@@ -51,7 +51,7 @@
 # 0xFC00*2=0x1F800 for ATmega128  1024 words Boot Size
 # 0xF800*2=0x1F000 for ATmega1280
 # 0xF000*2=0x1E000 for ATmega1280
-#BOOTLOADER_ADDRESS = 1E000
+BOOTLOADER_ADDRESS = 3E000
 
 
 # Output format. (can be srec, ihex, binary)
@@ -63,7 +63,7 @@ TARGET = stk500boot
 
 
 # List C source files here. (C dependencies are automatically generated.)
-SRC = stk500boot.c 
+SRC = stk500boot.c lcd.c
 
 
 # List Assembler source files here.
@@ -324,12 +324,12 @@ ALL_ASFLAGS = -mmcu=$(MCU) -I. -x assembler-with-cpp $(ASFLAGS)
 
 ############################################################
 #	May 25,	2010	<MLS> Adding 1280 support
-mega1280: MCU = atmega1280
-mega1280: F_CPU = 16000000
-mega1280: BOOTLOADER_ADDRESS = 1E000
-mega1280: CFLAGS += -D_MEGA_BOARD_
-mega1280: begin gccversion sizebefore build sizeafter end 
-			mv $(TARGET).hex stk500boot_v2_mega1280.hex
+#mega1280: MCU = atmega1280
+#mega1280: F_CPU = 16000000
+#mega1280: BOOTLOADER_ADDRESS = 1E000
+#mega1280: CFLAGS += -D_MEGA_BOARD_
+#mega1280: begin gccversion sizebefore build sizeafter end 
+#			mv $(TARGET).hex stk500boot_v2_mega1280.hex
 
 
 ############################################################

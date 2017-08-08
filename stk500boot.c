@@ -100,6 +100,8 @@ LICENSE:
 //*	Issue 181: added watch dog timmer support
 #define	_FIX_ISSUE_181_
 
+#define LCD_HD44780
+
 #include	<inttypes.h>
 #include	<avr/io.h>
 #include	<avr/interrupt.h>
@@ -108,16 +110,13 @@ LICENSE:
 #include	<util/delay.h>
 #include	<avr/eeprom.h>
 #include	<avr/common.h>
-#include	<stdlib.h>
+//#include	<stdlib.h>
 #include	"command.h"
 
-
-#if defined(_MEGA_BOARD_) || defined(_BOARD_AMBER128_) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) \
-	|| defined(__AVR_ATmega2561__) || defined(__AVR_ATmega1284P__) || defined(ENABLE_MONITOR)
-	#undef		ENABLE_MONITOR
-	#define		ENABLE_MONITOR
-	static void	RunMonitor(void);
+#ifdef LCD_HD44780
+	#include    "lcd.h"
 #endif
+
 
 #ifndef EEWE
 	#define EEWE    1
@@ -126,8 +125,6 @@ LICENSE:
 	#define EEMWE   2
 #endif
 
-//#define	_DEBUG_SERIAL_
-//#define	_DEBUG_WITH_LEDS_
 
 
 /*
@@ -389,6 +386,30 @@ LICENSE:
 #endif
 
 
+// UART defines
+#define	UART_BAUD_RATE_LOW0			UBRR0L
+#define	UART_STATUS_REG0			UCSR0A
+#define	UART_CONTROL_REG0			UCSR0B
+#define	UART_ENABLE_TRANSMITTER0	TXEN0
+#define	UART_ENABLE_RECEIVER0		RXEN0
+#define	UART_TRANSMIT_COMPLETE0		TXC0
+#define	UART_RECEIVE_COMPLETE0		RXC0
+#define	UART_DATA_REG0				UDR0
+#define	UART_DOUBLE_SPEED0			U2X0
+
+#define	UART_BAUD_RATE_LOW2			UBRR2L
+#define	UART_STATUS_REG2			UCSR2A
+#define	UART_CONTROL_REG2			UCSR2B
+#define	UART_ENABLE_TRANSMITTER2	TXEN2
+#define	UART_ENABLE_RECEIVER2		RXEN2
+#define	UART_TRANSMIT_COMPLETE2		TXC2
+#define	UART_RECEIVE_COMPLETE2		RXC2
+#define	UART_DATA_REG2				UDR2
+#define	UART_DOUBLE_SPEED2			U2X2
+
+
+#define UART_BAUD_SELECT(baudRate,xtalCpu) (((float)(xtalCpu))/(((float)(baudRate))*8.0)-1.0+0.5)
+
 /*
  * States used in the receive state machine
  */
@@ -523,6 +544,54 @@ uint32_t count = 0;
 	return UART_DATA_REG;
 }
 
+void initUart() {
+	// init uart0
+	UART_STATUS_REG0		|=	(1 <<UART_DOUBLE_SPEED0);
+	UART_BAUD_RATE_LOW0	=	UART_BAUD_SELECT(BAUDRATE,F_CPU);
+	UART_CONTROL_REG0	=	(1 << UART_ENABLE_RECEIVER0) | (1 << UART_ENABLE_TRANSMITTER0);
+
+	// init uart2
+	UART_STATUS_REG2		|=	(1 <<UART_DOUBLE_SPEED2);
+	UART_BAUD_RATE_LOW2	=	UART_BAUD_SELECT(BAUDRATE,F_CPU);
+	UART_CONTROL_REG2	=	(1 << UART_ENABLE_RECEIVER2) | (1 << UART_ENABLE_TRANSMITTER2);
+}
+
+/*void sendHello() {
+	sendchar('H');
+	sendchar('e');
+	sendchar('l');
+	sendchar('l');
+	sendchar('o');
+	sendchar('!');
+	sendchar('\n');
+}*/
+
+#ifdef EINSYBOARD
+
+void blinkBootLed(int state) {
+    if (state == 1) {
+        PORTB = 0b10000000;
+    } else {
+        PORTB = 0b00000000;
+    }
+}
+
+void pinsToDefaultState() {
+    DDRG = 0b00001000;
+    DDRE = 0b00001000;
+    DDRH = 0b00101000;
+    DDRA = 0b00011110;
+    DDRB = 0b10000000;
+
+    PORTH = 0b00101000;
+    PORTG = 0b00000000;
+    PORTE = 0b00000000;
+    PORTA = 0b00000000;
+}
+#endif
+
+#define DUALSERIAL
+
 //*	for watch dog timer startup
 void (*app_start)(void) = 0x0000;
 
@@ -544,10 +613,6 @@ int main(void)
 	unsigned long	boot_timeout;
 	unsigned long	boot_timer;
 	unsigned int	boot_state;
-#ifdef ENABLE_MONITOR
-	unsigned int	exPointCntr		=	0;
-	unsigned int	rcvdCharCntr	=	0;
-#endif
 
 	//*	some chips dont set the stack properly
 	asm volatile ( ".set __stack, %0" :: "i" (RAMEND) );
@@ -598,15 +663,6 @@ int main(void)
 //	PROGLED_PORT	&=	~(1<<PROGLED_PIN);	// active low LED ON
 	PROGLED_PORT	|=	(1<<PROGLED_PIN);	// active high LED ON
 
-#ifdef _DEBUG_WITH_LEDS_
-	for (ii=0; ii<3; ii++)
-	{
-		PROGLED_PORT	&=	~(1<<PROGLED_PIN);	// turn LED off
-		delay_ms(100);
-		PROGLED_PORT	|=	(1<<PROGLED_PIN);	// turn LED on
-		delay_ms(100);
-	}
-#endif
 
 #endif
 	/*
@@ -621,22 +677,28 @@ int main(void)
 
 	asm volatile ("nop");			// wait until port has changed
 
-#ifdef _DEBUG_SERIAL_
-//	delay_ms(500);
-
-	sendchar('s');
-	sendchar('t');
-	sendchar('k');
-//	sendchar('5');
-//	sendchar('0');
-//	sendchar('0');
-	sendchar('v');
-	sendchar('2');
-	sendchar(0x0d);
-	sendchar(0x0a);
-
-	delay_ms(100);
+#ifdef EINSYBOARD
+    pinsToDefaultState();
+    blinkBootLed(1);
 #endif
+
+    initUart();
+
+#ifdef LCD_HD44780
+    lcd_init();
+    lcd_clrscr();
+    lcd_goto(23);
+    lcd_puts(" 3D  Printers");
+    lcd_goto(45);
+    lcd_puts("   Original Prusa");
+#endif //LCD_HD44780
+
+#ifdef EINSYBOARD
+    blinkBootLed(0);
+#endif
+
+    uint16_t animationTimer = 0;
+    uint16_t animationFrame = 0;
 
 	while (boot_state==0)
 	{
@@ -659,6 +721,7 @@ int main(void)
 		boot_state++; // ( if boot_state=1 bootloader received byte from UART, enter bootloader mode)
 	}
 
+    int messageShown = 0;
 
 	if (boot_state==1)
 	{
@@ -683,26 +746,6 @@ int main(void)
 					
 				}
 
-			#ifdef ENABLE_MONITOR
-				rcvdCharCntr++;
-
-				if ((c == '!')  && (rcvdCharCntr < 10))
-				{
-					exPointCntr++;
-					if (exPointCntr == 3)
-					{
-						RunMonitor();
-						exPointCntr		=	0;	//	reset back to zero so we dont get in an endless loop
-						isLeave			=	1;
-						msgParseState	=	99;	//*	we dont want it do anything
-						break;
-					}
-				}
-				else
-				{
-					exPointCntr	=	0;
-				}
-			#endif
 
 				switch (msgParseState)
 				{
@@ -779,6 +822,60 @@ int main(void)
 						break;
 				}	//	switch
 			}	//	while(msgParseState)
+
+#ifdef LCD_HD44780
+            animationTimer++;
+            if (animationTimer > 10) {
+                animationTimer = 0;
+                animationFrame++;
+                if (animationFrame>5) {
+                    animationFrame = 0;
+                }
+                lcd_goto(0);
+                if (messageShown == 0) {
+                    lcd_goto(20);
+                    lcd_puts(" Do not disconnect!");
+                    lcd_goto(45);
+                    lcd_puts(" Upgrading firmware");
+                    messageShown = 1;
+                }
+                // clear all first
+                /*lcd_goto(19);
+                lcd_puts(" ");
+                lcd_goto(39);
+                lcd_puts(" ");*/
+                lcd_goto(91);
+                lcd_puts("|    |");
+                /*lcd_goto(83);
+                lcd_puts(" ");*/
+                switch (animationFrame) {
+                case 0:
+                    lcd_goto(92);
+                    lcd_puts("*");
+                    break;
+                case 1:
+                    lcd_goto(93);
+                    lcd_puts("*");
+                    break;
+                case 2:
+                    lcd_goto(94);
+                    lcd_puts("*");
+                    break;
+                case 3:
+                    lcd_goto(95);
+                    lcd_puts("*");
+                    break;
+                case 4:
+                    lcd_goto(94);
+                    lcd_puts("*");
+                    break;
+                case 5:
+                    lcd_goto(93);
+                    lcd_puts("*");
+                    break;
+                }
+            }
+#endif //LCD_HD44780
 
 			/*
 			 * Now process the STK500 commands, see Atmel Appnote AVR068
@@ -1121,32 +1218,7 @@ int main(void)
 		}
 	}
 
-#ifdef _DEBUG_WITH_LEDS_
-	//*	this is for debugging it can be removed
-	for (ii=0; ii<10; ii++)
-	{
-		PROGLED_PORT	&=	~(1<<PROGLED_PIN);	// turn LED off
-		delay_ms(200);
-		PROGLED_PORT	|=	(1<<PROGLED_PIN);	// turn LED on
-		delay_ms(200);
-	}
-	PROGLED_PORT	&=	~(1<<PROGLED_PIN);	// turn LED off
-#endif
 
-#ifdef _DEBUG_SERIAL_
-	sendchar('j');
-//	sendchar('u');
-//	sendchar('m');
-//	sendchar('p');
-//	sendchar(' ');
-//	sendchar('u');
-//	sendchar('s');
-//	sendchar('r');
-	sendchar(0x0d);
-	sendchar(0x0a);
-
-	delay_ms(100);
-#endif
 
 
 #ifndef REMOVE_BOOTLOADER_LED
@@ -1204,919 +1276,3 @@ avrdude>
 */
 
 //************************************************************************
-#ifdef ENABLE_MONITOR
-#include	<math.h>
-
-unsigned long	gRamIndex;
-unsigned long	gFlashIndex;
-unsigned long	gEepromIndex;
-
-
-#define	true	1
-#define	false	0
-
-#include	"avr_cpunames.h"
-
-#ifndef _AVR_CPU_NAME_
-	#error cpu name not defined
-#endif
-
-#ifdef _VECTORS_SIZE
-	#define	kInterruptVectorCount (_VECTORS_SIZE / 4)
-#else
-	#define	kInterruptVectorCount 23
-#endif
-
-
-void	PrintDecInt(int theNumber, int digitCnt);
-
-#ifdef _AVR_CPU_NAME_
-	const char	gTextMsg_CPU_Name[]			PROGMEM	=	_AVR_CPU_NAME_;
-#else
-	const char	gTextMsg_CPU_Name[]			PROGMEM	=	"UNKNOWN";
-#endif
-
-	const char	gTextMsg_Explorer[]			PROGMEM	=	"Arduino explorer stk500V2 by MLS";
-	const char	gTextMsg_Prompt[]			PROGMEM	=	"Bootloader>";
-	const char	gTextMsg_HUH[]				PROGMEM	=	"Huh?";
-	const char	gTextMsg_COMPILED_ON[]		PROGMEM	=	"Compiled on = ";
-	const char	gTextMsg_CPU_Type[]			PROGMEM	=	"CPU Type    = ";
-	const char	gTextMsg_AVR_ARCH[]			PROGMEM	=	"__AVR_ARCH__= ";
-	const char	gTextMsg_AVR_LIBC[]			PROGMEM	=	"AVR LibC Ver= ";
-	const char	gTextMsg_GCC_VERSION[]		PROGMEM	=	"GCC Version = ";
-	const char	gTextMsg_CPU_SIGNATURE[]	PROGMEM	=	"CPU ID      = ";
-	const char	gTextMsg_FUSE_BYTE_LOW[]	PROGMEM	=	"Low fuse    = ";
-	const char	gTextMsg_FUSE_BYTE_HIGH[]	PROGMEM	=	"High fuse   = ";
-	const char	gTextMsg_FUSE_BYTE_EXT[]	PROGMEM	=	"Ext fuse    = ";
-	const char	gTextMsg_FUSE_BYTE_LOCK[]	PROGMEM	=	"Lock fuse   = ";
-	const char	gTextMsg_GCC_DATE_STR[]		PROGMEM	=	__DATE__;
-	const char	gTextMsg_AVR_LIBC_VER_STR[]	PROGMEM	=	__AVR_LIBC_VERSION_STRING__;
-	const char	gTextMsg_GCC_VERSION_STR[]	PROGMEM	=	__VERSION__;
-	const char	gTextMsg_VECTOR_HEADER[]	PROGMEM	=	"V#   ADDR   op code     instruction addr   Interrupt";
-	const char	gTextMsg_noVector[]			PROGMEM	=	"no vector";
-	const char	gTextMsg_rjmp[]				PROGMEM	=	"rjmp  ";
-	const char	gTextMsg_jmp[]				PROGMEM	=	"jmp ";
-	const char	gTextMsg_WHAT_PORT[]		PROGMEM	=	"What port:";
-	const char	gTextMsg_PortNotSupported[]	PROGMEM	=	"Port not supported";
-	const char	gTextMsg_MustBeLetter[]		PROGMEM	=	"Must be a letter";
-	const char	gTextMsg_SPACE[]			PROGMEM	=	" ";
-	const char	gTextMsg_WriteToEEprom[]	PROGMEM	=	"Writting EE";
-	const char	gTextMsg_ReadingEEprom[]	PROGMEM	=	"Reading EE";
-	const char	gTextMsg_EEPROMerrorCnt[]	PROGMEM	=	"EE err cnt=";
-	const char	gTextMsg_PORT[]				PROGMEM	=	"PORT";
-
-
-//************************************************************************
-//*	Help messages
-	const char	gTextMsg_HELP_MSG_0[]		PROGMEM	=	"0=Zero addr";
-	const char	gTextMsg_HELP_MSG_QM[]		PROGMEM	=	"?=CPU stats";
-	const char	gTextMsg_HELP_MSG_AT[]		PROGMEM	=	"@=EEPROM test";
-	const char	gTextMsg_HELP_MSG_B[]		PROGMEM	=	"B=Blink LED";
-	const char	gTextMsg_HELP_MSG_E[]		PROGMEM	=	"E=Dump EEPROM";
-	const char	gTextMsg_HELP_MSG_F[]		PROGMEM	=	"F=Dump FLASH";
-	const char	gTextMsg_HELP_MSG_H[]		PROGMEM	=	"H=Help";
-	const char	gTextMsg_HELP_MSG_L[]		PROGMEM	=	"L=List I/O Ports";
-//	const char	gTextMsg_HELP_MSG_Q[]		PROGMEM	=	"Q=Quit & jump to user pgm";
-	const char	gTextMsg_HELP_MSG_Q[]		PROGMEM	=	"Q=Quit";
-	const char	gTextMsg_HELP_MSG_R[]		PROGMEM	=	"R=Dump RAM";
-	const char	gTextMsg_HELP_MSG_V[]		PROGMEM	=	"V=show interrupt Vectors";
-	const char	gTextMsg_HELP_MSG_Y[]		PROGMEM	=	"Y=Port blink";
-
-	const char	gTextMsg_END[]				PROGMEM	=	"*";
-
-
-//************************************************************************
-void	PrintFromPROGMEM(const void *dataPtr, unsigned char offset)
-{
-char	theChar;
-
-	dataPtr		+=	offset;
-
-	do {
-	#if (FLASHEND > 0x10000)
-		theChar	=	pgm_read_byte_far((uint16_t)dataPtr++);
-	#else
-		theChar	=	pgm_read_byte_near((uint16_t)dataPtr++);
-	#endif
-		if (theChar != 0)
-		{
-			sendchar(theChar);
-		}
-	} while (theChar != 0);
-}
-
-//************************************************************************
-void	PrintNewLine(void)
-{
-	sendchar(0x0d);
-	sendchar(0x0a);
-}
-
-
-//************************************************************************
-void	PrintFromPROGMEMln(const void *dataPtr, unsigned char offset)
-{
-	PrintFromPROGMEM(dataPtr, offset);
-
-	PrintNewLine();
-}
-
-
-//************************************************************************
-void	PrintString(char *textString)
-{
-char	theChar;
-int		ii;
-
-	theChar		=	1;
-	ii			=	0;
-	while (theChar != 0)
-	{
-		theChar	=	textString[ii];
-		if (theChar != 0)
-		{
-			sendchar(theChar);
-		}
-		ii++;
-	}
-}
-
-//************************************************************************
-void	PrintHexByte(unsigned char theByte)
-{
-char	theChar;
-
-	theChar	=	0x30 + ((theByte >> 4) & 0x0f);
-	if (theChar > 0x39)
-	{
-		theChar	+=	7;
-	}
-	sendchar(theChar );
-
-	theChar	=	0x30 + (theByte & 0x0f);
-	if (theChar > 0x39)
-	{
-		theChar	+=	7;
-	}
-	sendchar(theChar );
-}
-
-//************************************************************************
-void	PrintDecInt(int theNumber, int digitCnt)
-{
-int	theChar;
-int	myNumber;
-
-	myNumber	=	theNumber;
-
-	if ((myNumber > 100) || (digitCnt >= 3))
-	{
-		theChar		=	0x30 + myNumber / 100;
-		sendchar(theChar );
-	}
-
-	if ((myNumber > 10) || (digitCnt >= 2))
-	{
-		theChar	=	0x30  + ((myNumber % 100) / 10 );
-		sendchar(theChar );
-	}
-	theChar	=	0x30 + (myNumber % 10);
-	sendchar(theChar );
-}
-
-
-
-
-//************************************************************************
-static void	PrintCPUstats(void)
-{
-unsigned char fuseByte;
-
-	PrintFromPROGMEMln(gTextMsg_Explorer, 0);
-
-	PrintFromPROGMEM(gTextMsg_COMPILED_ON, 0);
-	PrintFromPROGMEMln(gTextMsg_GCC_DATE_STR, 0);
-
-	PrintFromPROGMEM(gTextMsg_CPU_Type, 0);
-	PrintFromPROGMEMln(gTextMsg_CPU_Name, 0);
-
-	PrintFromPROGMEM(gTextMsg_AVR_ARCH, 0);
-	PrintDecInt(__AVR_ARCH__, 1);
-	PrintNewLine();
-
-	PrintFromPROGMEM(gTextMsg_GCC_VERSION, 0);
-	PrintFromPROGMEMln(gTextMsg_GCC_VERSION_STR, 0);
-
-	//*	these can be found in avr/version.h
-	PrintFromPROGMEM(gTextMsg_AVR_LIBC, 0);
-	PrintFromPROGMEMln(gTextMsg_AVR_LIBC_VER_STR, 0);
-
-#if defined(SIGNATURE_0)
-	PrintFromPROGMEM(gTextMsg_CPU_SIGNATURE, 0);
-	//*	these can be found in avr/iomxxx.h
-	PrintHexByte(SIGNATURE_0);
-	PrintHexByte(SIGNATURE_1);
-	PrintHexByte(SIGNATURE_2);
-	PrintNewLine();
-#endif
-
-
-#if defined(GET_LOW_FUSE_BITS)
-	//*	fuse settings
-	PrintFromPROGMEM(gTextMsg_FUSE_BYTE_LOW, 0);
-	fuseByte	=	boot_lock_fuse_bits_get(GET_LOW_FUSE_BITS);
-	PrintHexByte(fuseByte);
-	PrintNewLine();
-
-	PrintFromPROGMEM(gTextMsg_FUSE_BYTE_HIGH, 0);
-	fuseByte	=	boot_lock_fuse_bits_get(GET_HIGH_FUSE_BITS);
-	PrintHexByte(fuseByte);
-	PrintNewLine();
-
-	PrintFromPROGMEM(gTextMsg_FUSE_BYTE_EXT, 0);
-	fuseByte	=	boot_lock_fuse_bits_get(GET_EXTENDED_FUSE_BITS);
-	PrintHexByte(fuseByte);
-	PrintNewLine();
-
-	PrintFromPROGMEM(gTextMsg_FUSE_BYTE_LOCK, 0);
-	fuseByte	=	boot_lock_fuse_bits_get(GET_LOCK_BITS);
-	PrintHexByte(fuseByte);
-	PrintNewLine();
-
-#endif
-
-}
-
-
-//************************************************************************
-static void BlinkLED(void)
-{
-	PROGLED_DDR		|=	(1<<PROGLED_PIN);
-	PROGLED_PORT	|=	(1<<PROGLED_PIN);	// active high LED ON
-
-	while (!Serial_Available())
-	{
-		PROGLED_PORT	&=	~(1<<PROGLED_PIN);	// turn LED off
-		delay_ms(100);
-		PROGLED_PORT	|=	(1<<PROGLED_PIN);	// turn LED on
-		delay_ms(100);
-	}
-	recchar();	//	get the char out of the buffer
-}
-
-enum
-{
-	kDUMP_FLASH	=	0,
-	kDUMP_EEPROM,
-	kDUMP_RAM
-};
-
-//************************************************************************
-static void	DumpHex(unsigned char dumpWhat, unsigned long startAddress, unsigned char numRows)
-{
-unsigned long	myAddressPointer;
-uint8_t			ii;
-unsigned char	theValue;
-char			asciiDump[18];
-unsigned char	*ramPtr;
-
-
-	ramPtr				=	0;
-	theValue			=	0;
-	myAddressPointer	=	startAddress;
-	while (numRows > 0)
-	{
-		if (myAddressPointer > 0x10000)
-		{
-			PrintHexByte((myAddressPointer >> 16) & 0x00ff);
-		}
-		PrintHexByte((myAddressPointer >> 8) & 0x00ff);
-		PrintHexByte(myAddressPointer & 0x00ff);
-		sendchar(0x20);
-		sendchar('-');
-		sendchar(0x20);
-
-		asciiDump[0]		=	0;
-		for (ii=0; ii<16; ii++)
-		{
-			switch(dumpWhat)
-			{
-				case kDUMP_FLASH:
-				#if (FLASHEND > 0x10000)
-					theValue	=	pgm_read_byte_far(myAddressPointer);
-				#else
-					theValue	=	pgm_read_byte_near(myAddressPointer);
-				#endif
-					break;
-
-				case kDUMP_EEPROM:
-					theValue	=	eeprom_read_byte((uint8_t *)(uint16_t)myAddressPointer);
-					break;
-
-				case kDUMP_RAM:
-					theValue	=	ramPtr[myAddressPointer];
-					break;
-
-			}
-			PrintHexByte(theValue);
-			sendchar(0x20);
-			if ((theValue >= 0x20) && (theValue < 0x7f))
-			{
-				asciiDump[ii % 16]	=	theValue;
-			}
-			else
-			{
-				asciiDump[ii % 16]	=	'.';
-			}
-
-			myAddressPointer++;
-		}
-		asciiDump[16]	=	0;
-		PrintString(asciiDump);
-		PrintNewLine();
-
-		numRows--;
-	}
-}
-
-
-
-//************************************************************************
-//*	returns amount of extended memory
-static void	EEPROMtest(void)
-{
-int		ii;
-char	theChar;
-char	theEEPROMchar;
-int		errorCount;
-
-	PrintFromPROGMEMln(gTextMsg_WriteToEEprom, 0);
-	PrintNewLine();
-	ii			=	0;
-#if (FLASHEND > 0x10000)
-	while (((theChar = pgm_read_byte_far(((uint16_t)gTextMsg_Explorer) + ii)) != '*') && (ii < 512))
-#else
-	while (((theChar = pgm_read_byte_near(((uint16_t)gTextMsg_Explorer) + ii)) != '*') && (ii < 512))
-#endif
-	{
-		eeprom_write_byte((uint8_t *)ii, theChar);
-		if (theChar == 0)
-		{
-			PrintFromPROGMEM(gTextMsg_SPACE, 0);
-		}
-		else
-		{
-			sendchar(theChar);
-		}
-		ii++;
-	}
-
-	//*	no go back through and test
-	PrintNewLine();
-	PrintNewLine();
-	PrintFromPROGMEMln(gTextMsg_ReadingEEprom, 0);
-	PrintNewLine();
-	errorCount	=	0;
-	ii			=	0;
-#if (FLASHEND > 0x10000)
-	while (((theChar = pgm_read_byte_far((uint16_t)gTextMsg_Explorer + ii)) != '*') && (ii < 512))
-#else
-	while (((theChar = pgm_read_byte_near((uint16_t)gTextMsg_Explorer + ii)) != '*') && (ii < 512))
-#endif
-	{
-		theEEPROMchar	=	eeprom_read_byte((uint8_t *)ii);
-		if (theEEPROMchar == 0)
-		{
-			PrintFromPROGMEM(gTextMsg_SPACE, 0);
-		}
-		else
-		{
-			sendchar(theEEPROMchar);
-		}
-		if (theEEPROMchar != theChar)
-		{
-			errorCount++;
-		}
-		ii++;
-	}
-	PrintNewLine();
-	PrintNewLine();
-	PrintFromPROGMEM(gTextMsg_EEPROMerrorCnt, 0);
-	PrintDecInt(errorCount, 1);
-	PrintNewLine();
-	PrintNewLine();
-
-	gEepromIndex	=	0;	//*	set index back to zero for next eeprom dump
-
-}
-
-
-
-#if (FLASHEND > 0x08000)
-//*	this includes the interrupt names for the monitor portion. There is no longer enough 
-//*	memory to include this
-//	#include	"avrinterruptnames.h"
-//	#ifndef _INTERRUPT_NAMES_DEFINED_
-//		#warning Interrupt vectors not defined
-//	#endif
-#endif
-
-//************************************************************************
-static void	VectorDisplay(void)
-{
-unsigned long	byte1;
-unsigned long	byte2;
-unsigned long	byte3;
-unsigned long	byte4;
-unsigned long	word1;
-unsigned long	word2;
-int				vectorIndex;
-unsigned long	myMemoryPtr;
-unsigned long	wordMemoryAddress;
-unsigned long	realitiveAddr;
-unsigned long	myFullAddress;
-unsigned long	absoluteAddr;
-#if defined(_INTERRUPT_NAMES_DEFINED_)
-	long		stringPointer;
-#endif
-
-	myMemoryPtr		=	0;
-	vectorIndex		=	0;
-	PrintFromPROGMEMln(gTextMsg_CPU_Name, 0);
-	PrintFromPROGMEMln(gTextMsg_VECTOR_HEADER, 0);
-	//					 V#   ADDR   op code
-	//					  1 - 0000 = C3 BB 00 00 rjmp 03BB >000776 RESET
-	while (vectorIndex < kInterruptVectorCount)
-	{
-		wordMemoryAddress	=	myMemoryPtr / 2;
-		//					 01 - 0000 = 12 34
-		PrintDecInt(vectorIndex + 1, 2);
-		sendchar(0x20);
-		sendchar('-');
-		sendchar(0x20);
-		PrintHexByte((wordMemoryAddress >> 8) & 0x00ff);
-		PrintHexByte((wordMemoryAddress) & 0x00ff);
-		sendchar(0x20);
-		sendchar('=');
-		sendchar(0x20);
-
-	
-		//*	the AVR is LITTLE ENDIAN, swap the byte order
-	#if (FLASHEND > 0x10000)
-		byte1	=	pgm_read_byte_far(myMemoryPtr++);
-		byte2	=	pgm_read_byte_far(myMemoryPtr++);
-		byte3	=	pgm_read_byte_far(myMemoryPtr++);
-		byte4	=	pgm_read_byte_far(myMemoryPtr++);
-	#else
-		byte1	=	pgm_read_byte_near(myMemoryPtr++);
-		byte2	=	pgm_read_byte_near(myMemoryPtr++);
-		byte3	=	pgm_read_byte_near(myMemoryPtr++);
-		byte4	=	pgm_read_byte_near(myMemoryPtr++);
-	#endif
-		word1	=	(byte2 << 8) + byte1;
-		word2	=	(byte4 << 8) + byte3;
-
-
-		PrintHexByte(byte2);
-		sendchar(0x20);
-		PrintHexByte(byte1);
-		sendchar(0x20);
-		PrintHexByte(byte4);
-		sendchar(0x20);
-		PrintHexByte(byte3);
-		sendchar(0x20);
-	
-		if (word1 == 0xffff)
-		{
-			PrintFromPROGMEM(gTextMsg_noVector, 0);
-		}
-		else if ((word1 & 0xc000) == 0xc000)
-		{
-			//*	rjmp instruction
-			realitiveAddr	=	word1 & 0x3FFF;
-			absoluteAddr	=	wordMemoryAddress + realitiveAddr;	//*	add the offset to the current address
-			absoluteAddr	=	absoluteAddr << 1;					//*	multiply by 2 for byte address
-
-			PrintFromPROGMEM(gTextMsg_rjmp, 0);
-			PrintHexByte((realitiveAddr >> 8) & 0x00ff);
-			PrintHexByte((realitiveAddr) & 0x00ff);
-			sendchar(0x20);
-			sendchar('>');
-			PrintHexByte((absoluteAddr >> 16) & 0x00ff);
-			PrintHexByte((absoluteAddr >> 8) & 0x00ff);
-			PrintHexByte((absoluteAddr) & 0x00ff);
-	
-		}
-		else if ((word1 & 0xfE0E) == 0x940c)
-		{
-			//*	jmp instruction, this is REALLY complicated, refer to the instruction manual (JMP)
-			myFullAddress	=	((byte1 & 0x01) << 16) +
-								((byte1 & 0xf0) << 17) +
-								((byte2 & 0x01) << 21) +
-								word2;
-							
-			absoluteAddr	=	myFullAddress << 1;
-							
-			PrintFromPROGMEM(gTextMsg_jmp, 0);
-			PrintHexByte((myFullAddress >> 16) & 0x00ff);
-			PrintHexByte((myFullAddress >> 8) & 0x00ff);
-			PrintHexByte((myFullAddress) & 0x00ff);
-			sendchar(0x20);
-			sendchar('>');
-			PrintHexByte((absoluteAddr >> 16) & 0x00ff);
-			PrintHexByte((absoluteAddr >> 8) & 0x00ff);
-			PrintHexByte((absoluteAddr) & 0x00ff);
-		}
-
-	#if defined(_INTERRUPT_NAMES_DEFINED_)
-		sendchar(0x20);
-	#if (FLASHEND > 0x10000)
-		stringPointer	=	pgm_read_word_far(&(gInterruptNameTable[vectorIndex]));
-	#else
-		stringPointer	=	pgm_read_word_near(&(gInterruptNameTable[vectorIndex]));
-	#endif
-		PrintFromPROGMEM((char *)stringPointer, 0);
-	#endif
-		PrintNewLine();
-
-		vectorIndex++;
-	}
-}
-
-//************************************************************************
-static void	PrintAvailablePort(char thePortLetter)
-{
-	PrintFromPROGMEM(gTextMsg_PORT, 0);
-	sendchar(thePortLetter);
-	PrintNewLine();
-}
-
-//************************************************************************
-static void	ListAvailablePorts(void)
-{
-
-#ifdef DDRA
-	PrintAvailablePort('A');
-#endif
-
-#ifdef DDRB
-	PrintAvailablePort('B');
-#endif
-
-#ifdef DDRC
-	PrintAvailablePort('C');
-#endif
-
-#ifdef DDRD
-	PrintAvailablePort('D');
-#endif
-
-#ifdef DDRE
-	PrintAvailablePort('E');
-#endif
-
-#ifdef DDRF
-	PrintAvailablePort('F');
-#endif
-
-#ifdef DDRG
-	PrintAvailablePort('G');
-#endif
-
-#ifdef DDRH
-	PrintAvailablePort('H');
-#endif
-
-#ifdef DDRI
-	PrintAvailablePort('I');
-#endif
-
-#ifdef DDRJ
-	PrintAvailablePort('J');
-#endif
-
-#ifdef DDRK
-	PrintAvailablePort('K');
-#endif
-
-#ifdef DDRL
-	PrintAvailablePort('L');
-#endif
-
-}
-
-//************************************************************************
-static void	AVR_PortOutput(void)
-{
-char	portLetter;
-char	getCharFlag;
-
-	PrintFromPROGMEM(gTextMsg_WHAT_PORT, 0);
-
-	portLetter	=	recchar();
-	portLetter	=	portLetter & 0x5f;
-	sendchar(portLetter);
-	PrintNewLine();
-
-	if ((portLetter >= 'A') && (portLetter <= 'Z'))
-	{
-		getCharFlag	=	true;
-		switch(portLetter)
-		{
-		#ifdef DDRA
-			case 'A':
-				DDRA	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTA	^=	0xff;
-					delay_ms(200);
-				}
-				PORTA	=	0;
-				break;
-		#endif
-
-		#ifdef DDRB
-			case 'B':
-				DDRB	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTB	^=	0xff;
-					delay_ms(200);
-				}
-				PORTB	=	0;
-				break;
-		#endif
-
-		#ifdef DDRC
-			case 'C':
-				DDRC	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTC	^=	0xff;
-					delay_ms(200);
-				}
-				PORTC	=	0;
-				break;
-		#endif
-
-		#ifdef DDRD
-			case 'D':
-				DDRD	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTD	^=	0xff;
-					delay_ms(200);
-				}
-				PORTD	=	0;
-				break;
-		#endif
-
-		#ifdef DDRE
-			case 'E':
-				DDRE	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTE	^=	0xff;
-					delay_ms(200);
-				}
-				PORTE	=	0;
-				break;
-		#endif
-
-		#ifdef DDRF
-			case 'F':
-				DDRF	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTF	^=	0xff;
-					delay_ms(200);
-				}
-				PORTF	=	0;
-				break;
-		#endif
-
-		#ifdef DDRG
-			case 'G':
-				DDRG	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTG	^=	0xff;
-					delay_ms(200);
-				}
-				PORTG	=	0;
-				break;
-		#endif
-
-		#ifdef DDRH
-			case 'H':
-				DDRH	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTH	^=	0xff;
-					delay_ms(200);
-				}
-				PORTH	=	0;
-				break;
-		#endif
-
-		#ifdef DDRI
-			case 'I':
-				DDRI	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTI	^=	0xff;
-					delay_ms(200);
-				}
-				PORTI	=	0;
-				break;
-		#endif
-
-		#ifdef DDRJ
-			case 'J':
-				DDRJ	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTJ	^=	0xff;
-					delay_ms(200);
-				}
-				PORTJ	=	0;
-				break;
-		#endif
-
-		#ifdef DDRK
-			case 'K':
-				DDRK	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTK	^=	0xff;
-					delay_ms(200);
-				}
-				PORTK	=	0;
-				break;
-		#endif
-
-		#ifdef DDRL
-			case 'L':
-				DDRL	=	0xff;
-				while (!Serial_Available())
-				{
-					PORTL	^=	0xff;
-					delay_ms(200);
-				}
-				PORTL	=	0;
-				break;
-		#endif
-
-			default:
-				PrintFromPROGMEMln(gTextMsg_PortNotSupported, 0);
-				getCharFlag	=	false;
-				break;
-		}
-		if (getCharFlag)
-		{
-			recchar();
-		}
-	}
-	else
-	{
-		PrintFromPROGMEMln(gTextMsg_MustBeLetter, 0);
-	}
-}
-
-
-//*******************************************************************
-static void PrintHelp(void)
-{
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_0, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_QM, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_AT, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_B, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_E, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_F, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_H, 0);
-
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_L, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_Q, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_R, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_V, 0);
-	PrintFromPROGMEMln(gTextMsg_HELP_MSG_Y, 0);
-}
-
-//************************************************************************
-static void	RunMonitor(void)
-{
-char			keepGoing;
-unsigned char	theChar;
-int				ii, jj;
-
-	for (ii=0; ii<5; ii++)
-	{
-		for (jj=0; jj<25; jj++)
-		{
-			sendchar('!');
-		}
-		PrintNewLine();
-	}
-
-	gRamIndex			=	0;
-	gFlashIndex			=	0;
-	gEepromIndex		=	0;
-
-	PrintFromPROGMEMln(gTextMsg_Explorer, 0);
-
-	keepGoing	=	1;
-	while (keepGoing)
-	{
-		PrintFromPROGMEM(gTextMsg_Prompt, 0);
-		theChar	=	recchar();
-		if (theChar >= 0x60)
-		{
-			theChar	=	theChar & 0x5F;
-		}
-
-		if (theChar >= 0x20)
-		{
-			sendchar(theChar);
-			sendchar(0x20);
-		}
-
-		switch(theChar)
-		{
-			case '0':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_0, 2);
-				gFlashIndex		=	0;
-				gRamIndex		=	0;
-				gEepromIndex	=	0;
-				break;
-
-			case '?':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_QM, 2);
-				PrintCPUstats();
-				break;
-
-			case '@':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_AT, 2);
-				EEPROMtest();
-				break;
-
-			case 'B':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_B, 2);
-				BlinkLED();
-				break;
-
-			case 'E':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_E, 2);
-				DumpHex(kDUMP_EEPROM, gEepromIndex, 16);
-				gEepromIndex	+=	256;
-				if (gEepromIndex > E2END)
-				{
-					gEepromIndex	=	0;
-				}
-				break;
-		
-			case 'F':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_F, 2);
-				DumpHex(kDUMP_FLASH, gFlashIndex, 16);
-				gFlashIndex	+=	256;
-				break;
-
-			case 'H':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_H, 2);
-				PrintHelp();
-				break;
-
-			case 'L':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_L, 2);
-				ListAvailablePorts();
-				break;
-
-			case 'Q':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_Q, 2);
-				keepGoing	=	false;
-				break;
-
-			case 'R':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_R, 2);
-				DumpHex(kDUMP_RAM, gRamIndex, 16);
-				gRamIndex	+=	256;
-				break;
-
-			case 'V':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_V, 2);
-				VectorDisplay();
-				break;
-
-			case 'Y':
-				PrintFromPROGMEMln(gTextMsg_HELP_MSG_Y, 2);
-				AVR_PortOutput();
-				break;
-			
-			default:
-				PrintFromPROGMEMln(gTextMsg_HUH, 0);
-				break;
-		}
-	}
-}
-
-#endif
-
