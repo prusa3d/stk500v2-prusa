@@ -24,7 +24,6 @@
 #define CMD_LOAD_ADDRESS                    0x06
 #define CMD_FIRMWARE_UPGRADE                0x07
 
-
 // *****************[ STK ISP command constants ]******************************
 
 #define CMD_ENTER_PROGMODE_ISP              0x10
@@ -75,6 +74,11 @@
 #define CMD_READ_LOCK_HVSP                  0x3A
 #define CMD_READ_SIGNATURE_HVSP             0x3B
 #define CMD_READ_OSCCAL_HVSP                0x3C
+
+// *****************[ STK Prusa3D specific command constants ]*****************
+
+#define CMD_SET_UPLOAD_SIZE_PRUSA3D         0x71
+
 
 // *****************[ STK status constants ]***************************
 

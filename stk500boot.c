@@ -99,8 +99,15 @@ LICENSE:
 //************************************************************************
 //*	Issue 181: added watch dog timmer support
 #define	_FIX_ISSUE_181_
-
+// LCD startup screen and boot animation
 #define LCD_HD44780
+#define LCD_HD44780_ANIMATION
+#define LCD_HD44780_COUNTER
+// Dual serial support
+#define DUALSERIAL
+// EINSY board
+#define EINSYBOARD
+
 
 #include	<inttypes.h>
 #include	<avr/io.h>
@@ -110,11 +117,10 @@ LICENSE:
 #include	<util/delay.h>
 #include	<avr/eeprom.h>
 #include	<avr/common.h>
-//#include	<stdlib.h>
 #include	"command.h"
 
 #ifdef LCD_HD44780
-	#include    "lcd.h"
+#include    "lcd.h"
 #endif
 
 
@@ -371,7 +377,6 @@ LICENSE:
 #endif
 
 
-
 /*
  * Macro to calculate UBBR from XTAL and baudrate
  */
@@ -385,6 +390,7 @@ LICENSE:
 	#define UART_BAUD_SELECT(baudRate,xtalCpu) (((float)(xtalCpu))/(((float)(baudRate))*16.0)-1.0+0.5)
 #endif
 
+#ifdef DUALSERIAL
 
 // UART defines
 #define	UART_BAUD_RATE_LOW0			UBRR0L
@@ -406,6 +412,8 @@ LICENSE:
 #define	UART_RECEIVE_COMPLETE2		RXC2
 #define	UART_DATA_REG2				UDR2
 #define	UART_DOUBLE_SPEED2			U2X2
+
+#endif //DUALSERIAL
 
 
 #define UART_BAUD_SELECT(baudRate,xtalCpu) (((float)(xtalCpu))/(((float)(baudRate))*8.0)-1.0+0.5)
@@ -435,7 +443,11 @@ LICENSE:
  * function prototypes
  */
 static void sendchar(char c);
-static unsigned char recchar(void);
+//static unsigned char recchar(void);
+
+#ifdef DUALSERIAL
+int selectedSerial;
+#endif //DUALSERIAL
 
 /*
  * since this bootloader is not linked against the avr-gcc crt1 functions,
@@ -486,38 +498,103 @@ void delay_ms(unsigned int timedelay)
  */
 static void sendchar(char c)
 {
+#ifdef DUALSERIAL
+	if (selectedSerial == 0)
+	{
+		UART_DATA_REG0 = c;												// prepare transmission
+		while (!(UART_STATUS_REG0 & (1 << UART_TRANSMIT_COMPLETE0)));	// wait until byte sent
+		UART_STATUS_REG0 |= (1 << UART_TRANSMIT_COMPLETE0);				// delete TXCflag
+	}
+	else if (selectedSerial == 2)
+	{
+		UART_DATA_REG2 = c;												// prepare transmission
+		while (!(UART_STATUS_REG2 & (1 << UART_TRANSMIT_COMPLETE2)));	// wait until byte sent
+		UART_STATUS_REG2 |= (1 << UART_TRANSMIT_COMPLETE2);				// delete TXCflag
+	}
+#else //DUALSERIAL
 	UART_DATA_REG	=	c;										// prepare transmission
 	while (!(UART_STATUS_REG & (1 << UART_TRANSMIT_COMPLETE)));	// wait until byte sent
 	UART_STATUS_REG |= (1 << UART_TRANSMIT_COMPLETE);			// delete TXCflag
+#endif //DUALSERIAL
 }
 
 
 //************************************************************************
+#ifdef DUALSERIAL
+static int Serial_Available(int serial)
+{
+	if (serial == 0)
+		return (UART_STATUS_REG0 & (1 << UART_RECEIVE_COMPLETE0));	// wait for data
+	else if (serial == 2)
+		return (UART_STATUS_REG2 & (1 << UART_RECEIVE_COMPLETE2));	// wait for data
+	return 0;
+}
+#else //DUALSERIAL
 static int	Serial_Available(void)
 {
-	return(UART_STATUS_REG & (1 << UART_RECEIVE_COMPLETE));	// wait for data
+	return (UART_STATUS_REG & (1 << UART_RECEIVE_COMPLETE));	// wait for data
 }
+#endif //DUALSERIAL
 
 
 //*****************************************************************************
 /*
  * Read single byte from USART, block if no data available
  */
-static unsigned char recchar(void)
+/*static unsigned char recchar(void)
 {
-	while (!(UART_STATUS_REG & (1 << UART_RECEIVE_COMPLETE)))
+#ifdef DUALSERIAL
+	if (selectedSerial == 0)
 	{
-		// wait for data
+		while (!(UART_STATUS_REG0 & (1 << UART_RECEIVE_COMPLETE0))) { } // wait for data
+		return UART_DATA_REG0;
 	}
+	else if (selectedSerial == 2)
+	{
+		while (!(UART_STATUS_REG2 & (1 << UART_RECEIVE_COMPLETE2))) { } // wait for data
+		return UART_DATA_REG2;
+	}
+	return 0;
+#else //DUALSERIAL
+	while (!(UART_STATUS_REG & (1 << UART_RECEIVE_COMPLETE))) { } // wait for data
 	return UART_DATA_REG;
-}
+#endif //DUALSERIAL
+}*/
 
 #define	MAX_TIME_COUNT	(F_CPU >> 1)
 //*****************************************************************************
 static unsigned char recchar_timeout(void)
 {
-uint32_t count = 0;
-
+	uint32_t count = 0;
+#ifdef DUALSERIAL
+	while (1)
+	{
+		if ((selectedSerial == 0) && (UART_STATUS_REG0 & (1 << UART_RECEIVE_COMPLETE0))) break;
+		else if ((selectedSerial == 2) && (UART_STATUS_REG2 & (1 << UART_RECEIVE_COMPLETE2))) break;
+		count++;
+		if (count > MAX_TIME_COUNT)
+		{
+		unsigned int	data;
+		#if (FLASHEND > 0x10000)
+			data	=	pgm_read_word_far(0);	//*	get the first word of the user program
+		#else
+			data	=	pgm_read_word_near(0);	//*	get the first word of the user program
+		#endif
+			if (data != 0xffff)					//*	make sure its valid before jumping to it.
+			{
+				asm volatile(
+						"clr	r30		\n\t"
+						"clr	r31		\n\t"
+						"ijmp	\n\t"
+						);
+			}
+			count	=	0;
+		}
+	}
+	if (selectedSerial == 0) return UART_DATA_REG0;
+	else if (selectedSerial == 2) return UART_DATA_REG2;
+	return 0;
+#else //DUALSERIAL
 	while (!(UART_STATUS_REG & (1 << UART_RECEIVE_COMPLETE)))
 	{
 		// wait for data
@@ -542,19 +619,22 @@ uint32_t count = 0;
 		}
 	}
 	return UART_DATA_REG;
+#endif //DUALSERIAL
 }
 
-void initUart() {
+#ifdef DUALSERIAL
+void initUart()
+{
 	// init uart0
-	UART_STATUS_REG0		|=	(1 <<UART_DOUBLE_SPEED0);
+	UART_STATUS_REG0	|=	(1 <<UART_DOUBLE_SPEED0);
 	UART_BAUD_RATE_LOW0	=	UART_BAUD_SELECT(BAUDRATE,F_CPU);
 	UART_CONTROL_REG0	=	(1 << UART_ENABLE_RECEIVER0) | (1 << UART_ENABLE_TRANSMITTER0);
-
 	// init uart2
-	UART_STATUS_REG2		|=	(1 <<UART_DOUBLE_SPEED2);
+	UART_STATUS_REG2	|=	(1 <<UART_DOUBLE_SPEED2);
 	UART_BAUD_RATE_LOW2	=	UART_BAUD_SELECT(BAUDRATE,F_CPU);
 	UART_CONTROL_REG2	=	(1 << UART_ENABLE_RECEIVER2) | (1 << UART_ENABLE_TRANSMITTER2);
 }
+#endif //DUALSERIAL
 
 /*void sendHello() {
 	sendchar('H');
@@ -568,32 +648,36 @@ void initUart() {
 
 #ifdef EINSYBOARD
 
-void blinkBootLed(int state) {
-    if (state == 1) {
+void blinkBootLed(int state)
+{
+    if (state == 1)
         PORTB = 0b10000000;
-    } else {
+    else
         PORTB = 0b00000000;
-    }
 }
 
-void pinsToDefaultState() {
+void pinsToDefaultState()
+{
     DDRG = 0b00001000;
     DDRE = 0b00001000;
     DDRH = 0b00101000;
     DDRA = 0b00011110;
     DDRB = 0b10000000;
-
     PORTH = 0b00101000;
     PORTG = 0b00000000;
     PORTE = 0b00000000;
     PORTA = 0b00000000;
 }
-#endif
 
-#define DUALSERIAL
+#endif //EINSYBOARD
 
 //*	for watch dog timer startup
 void (*app_start)(void) = 0x0000;
+
+	unsigned long flashSize = 0; //flash data size in bytes
+	unsigned long flashCounter = 0; //flash counter (readed / written bytes)
+	address_t flashAddressLast = 0; //last written flash address
+	int flashOperation = 0; //current flash operation (0-nothing, 1-write, 2-verify)
 
 
 //*****************************************************************************
@@ -657,6 +741,11 @@ int main(void)
 	 * Branch to bootloader or application code ?
 	 */
 
+#ifdef DUALSERIAL
+	selectedSerial = 0;
+#endif //DUALSERIAL
+
+
 #ifndef REMOVE_BOOTLOADER_LED
 	/* PROG_PIN pulled low, indicate with LED that bootloader is active */
 	PROGLED_DDR		|=	(1<<PROGLED_PIN);
@@ -680,13 +769,17 @@ int main(void)
 #ifdef EINSYBOARD
     pinsToDefaultState();
     blinkBootLed(1);
-#endif
+#endif //EINSYBOARD
 
+#ifdef DUALSERIAL
     initUart();
+#endif //DUALSERIAL
 
 #ifdef LCD_HD44780
     lcd_init();
     lcd_clrscr();
+    lcd_goto(0);
+    lcd_puts("boot");
     lcd_goto(23);
     lcd_puts(" 3D  Printers");
     lcd_goto(45);
@@ -695,13 +788,34 @@ int main(void)
 
 #ifdef EINSYBOARD
     blinkBootLed(0);
-#endif
+#endif //EINSYBOARD
 
     uint16_t animationTimer = 0;
     uint16_t animationFrame = 0;
 
+
 	while (boot_state==0)
 	{
+#ifdef DUALSERIAL
+		while ((!(Serial_Available(0))) && (!(Serial_Available(2))) && (boot_state == 0))		// wait for data
+		{
+			_delay_ms(0.001);
+			boot_timer++;
+			if (boot_timer > boot_timeout)
+			{
+				boot_state	=	1; // (after ++ -> boot_state=2 bootloader timeout, jump to main 0x00000 )
+			}
+		#ifdef BLINK_LED_WHILE_WAITING
+			if ((boot_timer % _BLINK_LOOP_COUNT_) == 0)
+			{
+				//*	toggle the LED
+				PROGLED_PORT	^=	(1<<PROGLED_PIN);	// turn LED ON
+			}
+		#endif
+		}
+		if (Serial_Available(2))
+			selectedSerial = 2;
+#else //DUALSERIAL
 		while ((!(Serial_Available())) && (boot_state == 0))		// wait for data
 		{
 			_delay_ms(0.001);
@@ -718,6 +832,7 @@ int main(void)
 			}
 		#endif
 		}
+#endif //DUALSERIAL
 		boot_state++; // ( if boot_state=1 bootloader received byte from UART, enter bootloader mode)
 	}
 
@@ -824,58 +939,93 @@ int main(void)
 			}	//	while(msgParseState)
 
 #ifdef LCD_HD44780
-            animationTimer++;
-            if (animationTimer > 10) {
-                animationTimer = 0;
-                animationFrame++;
-                if (animationFrame>5) {
-                    animationFrame = 0;
-                }
-                lcd_goto(0);
-                if (messageShown == 0) {
-                    lcd_goto(20);
-                    lcd_puts(" Do not disconnect!");
-                    lcd_goto(45);
-                    lcd_puts(" Upgrading firmware");
-                    messageShown = 1;
-                }
-                // clear all first
-                /*lcd_goto(19);
-                lcd_puts(" ");
-                lcd_goto(39);
-                lcd_puts(" ");*/
-                lcd_goto(91);
-                lcd_puts("|    |");
-                /*lcd_goto(83);
-                lcd_puts(" ");*/
-                switch (animationFrame) {
-                case 0:
-                    lcd_goto(92);
-                    lcd_puts("*");
-                    break;
-                case 1:
-                    lcd_goto(93);
-                    lcd_puts("*");
-                    break;
-                case 2:
-                    lcd_goto(94);
-                    lcd_puts("*");
-                    break;
-                case 3:
-                    lcd_goto(95);
-                    lcd_puts("*");
-                    break;
-                case 4:
-                    lcd_goto(94);
-                    lcd_puts("*");
-                    break;
-                case 5:
-                    lcd_goto(93);
-                    lcd_puts("*");
-                    break;
-                }
+            lcd_goto(0);
+            if (messageShown == 0)
+			{
+                lcd_goto(20);
+                lcd_puts(" Do not disconnect!");
+                lcd_goto(45);
+                lcd_puts(" Upgrading firmware");
+                messageShown = 1;
             }
 #endif //LCD_HD44780
+
+#ifdef LCD_HD44780_ANIMATION
+			if (flashSize == 0)
+			{
+				animationTimer++;
+				if (animationTimer > 10) {
+					animationTimer = 0;
+					animationFrame++;
+					if (animationFrame>5) {
+						animationFrame = 0;
+					}
+					// clear all first
+					/*lcd_goto(19);
+					lcd_puts(" ");
+					lcd_goto(39);
+					lcd_puts(" ");*/
+					lcd_goto(91);
+					lcd_puts("|    |");
+					/*lcd_goto(83);
+					lcd_puts(" ");*/
+					switch (animationFrame) {
+					case 0:
+						lcd_goto(92);
+						lcd_puts("*");
+						break;
+					case 1:
+						lcd_goto(93);
+						lcd_puts("*");
+						break;
+					case 2:
+						lcd_goto(94);
+						lcd_puts("*");
+						break;
+					case 3:
+						lcd_goto(95);
+						lcd_puts("*");
+						break;
+					case 4:
+						lcd_goto(94);
+						lcd_puts("*");
+						break;
+					case 5:
+						lcd_goto(93);
+						lcd_puts("*");
+						break;
+					}
+				}
+			}
+#endif //LCD_HD44780_ANIMATION
+
+#ifdef LCD_HD44780_COUNTER
+			if ((flashSize != 0) && flashOperation)
+			{
+				if (flashOperation == 1) //write
+				{
+					lcd_goto(88);
+					lcd_puts("write ");
+				}
+				if (flashOperation == 2) //verify
+				{
+					lcd_goto(87);
+					lcd_puts("verify ");
+				}
+				int progress = 100 * flashCounter / flashSize;
+				char text[4] = "   ";
+				for (int i = 2; i >= 0; i--)
+					if (progress > 0)
+					{
+						text[i] = '0' + (progress % 10);
+						progress /= 10;
+					}
+					else
+						text[i] = ' ';
+				lcd_puts(text);
+				lcd_putc('%');
+			}
+#endif //LCD_HD44780_COUNTER
 
 			/*
 			 * Now process the STK500 commands, see Atmel Appnote AVR068
@@ -1078,6 +1228,15 @@ int main(void)
 					msgBuffer[1]	=	STATUS_CMD_OK;
 					break;
 
+				case CMD_SET_UPLOAD_SIZE_PRUSA3D:
+					((unsigned char*)&flashSize)[0] = msgBuffer[1];
+					((unsigned char*)&flashSize)[1] = msgBuffer[2];
+					((unsigned char*)&flashSize)[2] = msgBuffer[3];
+					((unsigned char*)&flashSize)[3] = 0;
+					msgLength		=	2;
+					msgBuffer[1]	=	STATUS_CMD_OK;
+					break;
+
 				case CMD_PROGRAM_FLASH_ISP:
 				case CMD_PROGRAM_EEPROM_ISP:
 					{
@@ -1090,6 +1249,19 @@ int main(void)
 
 						if ( msgBuffer[0] == CMD_PROGRAM_FLASH_ISP )
 						{
+							if (flashSize != 0)
+							{
+								if (address == 0) //first page
+								{
+									flashCounter = size; //initial value = size
+									flashAddressLast = 0; //last 
+									flashOperation = 1; //write
+								}
+								else if (address != flashAddressLast)
+									flashCounter += size; //add size to counter
+								flashAddressLast = address;
+							}
+
 							// erase only main section (bootloader protection)
 							if (eraseAddress < APP_END )
 							{
@@ -1113,6 +1285,7 @@ int main(void)
 							boot_page_write(tempaddress);
 							boot_spm_busy_wait();
 							boot_rww_enable();				// Re-enable the RWW section
+
 						}
 						else
 						{
@@ -1128,6 +1301,7 @@ int main(void)
 						}
 						msgLength		=	2;
 						msgBuffer[1]	=	STATUS_CMD_OK;
+
 					}
 					break;
 
@@ -1141,6 +1315,17 @@ int main(void)
 						*p++	=	STATUS_CMD_OK;
 						if (msgBuffer[0] == CMD_READ_FLASH_ISP )
 						{
+							if (flashSize != 0)
+							{
+								if ((address == 0x00000) && (flashOperation == 1))
+								{
+									flashOperation = 2; //verify
+									flashCounter = size; //initial value = size
+								}
+								else
+									flashCounter += size; //add size to counter
+							}
+
 							unsigned int data;
 
 							// Read FLASH
