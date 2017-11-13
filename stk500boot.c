@@ -274,7 +274,8 @@ LICENSE:
 	#define BOOTSIZE 2048
 #endif
 
-#define APP_END  (FLASHEND -(2*BOOTSIZE) + 1)
+//#define APP_END  (FLASHEND -(2*BOOTSIZE) + 1)
+#define APP_END  (FLASHEND -(BOOTSIZE) + 1)
 
 /*
  * Signature bytes are not available in avr-gcc io_xxx.h
@@ -459,20 +460,22 @@ void __jumpMain	(void) __attribute__ ((naked)) __attribute__ ((section (".init9"
 //#define	SPH_REG	0x3E
 //#define	SPL_REG	0x3D
 
+#define STACK_TOP (RAMEND - 16)
+
 //*****************************************************************************
 void __jumpMain(void)
 {
 //*	July 17, 2010	<MLS> Added stack pointer initialzation
 //*	the first line did not do the job on the ATmega128
 
-	asm volatile ( ".set __stack, %0" :: "i" (RAMEND) );
+	asm volatile ( ".set __stack, %0" :: "i" (STACK_TOP) );
 
 //*	set stack pointer to top of RAM
 
-	asm volatile ( "ldi	16, %0" :: "i" (RAMEND >> 8) );
+	asm volatile ( "ldi	16, %0" :: "i" (STACK_TOP >> 8) );
 	asm volatile ( "out %0,16" :: "i" (AVR_STACK_POINTER_HI_ADDR) );
 
-	asm volatile ( "ldi	16, %0" :: "i" (RAMEND & 0x0ff) );
+	asm volatile ( "ldi	16, %0" :: "i" (STACK_TOP & 0x0ff) );
 	asm volatile ( "out %0,16" :: "i" (AVR_STACK_POINTER_LO_ADDR) );
 
 	asm volatile ( "clr __zero_reg__" );									// GCC depends on register r1 set to 0
@@ -490,6 +493,30 @@ void delay_ms(unsigned int timedelay)
 		_delay_ms(0.5);
 	}
 }
+/**/
+void lcd_print_hex_nibble(uint8_t val)
+{
+	lcd_putc((val > 9)?('A' + val - 10):('0' + val));
+}
+
+void lcd_print_hex_byte(uint8_t val)
+{
+	lcd_print_hex_nibble(val >> 4);
+	lcd_print_hex_nibble(val & 0xf);
+}
+
+void lcd_print_hex_word(uint16_t val)
+{
+	lcd_print_hex_byte(val >> 8);
+	lcd_print_hex_byte(val & 0xff);
+}
+
+void lcd_print_hex_dword(uint32_t val)
+{
+	lcd_print_hex_word(val >> 16);
+	lcd_print_hex_word(val & 0xffff);
+}
+/**/
 
 
 //*****************************************************************************
@@ -672,13 +699,24 @@ void pinsToDefaultState()
 #endif //EINSYBOARD
 
 //*	for watch dog timer startup
-void (*app_start)(void) = 0x0000;
+//void (*app_start)(void) = 0x0000;
 
 	unsigned long flashSize = 0; //flash data size in bytes
 	unsigned long flashCounter = 0; //flash counter (readed / written bytes)
 	address_t flashAddressLast = 0; //last written flash address
 	int flashOperation = 0; //current flash operation (0-nothing, 1-write, 2-verify)
 
+#define RAMSIZE        0x2000
+#define boot_src_addr  (*((uint32_t*)(RAMSIZE - 16)))
+#define boot_dst_addr  (*((uint32_t*)(RAMSIZE - 12)))
+#define boot_copy_size (*((uint16_t*)(RAMSIZE - 8)))
+#define boot_reserved  (*((uint8_t*)(RAMSIZE - 6)))
+#define boot_app_flags (*((uint8_t*)(RAMSIZE - 5)))
+#define boot_app_magic (*((uint32_t*)(RAMSIZE - 4)))
+#define BOOT_APP_FLG_ERASE 0x01
+#define BOOT_APP_FLG_COPY  0x02
+#define BOOT_APP_FLG_FLASH 0x04
+	
 
 //*****************************************************************************
 int main(void)
@@ -699,11 +737,12 @@ int main(void)
 	unsigned int	boot_state;
 
 	//*	some chips dont set the stack properly
-	asm volatile ( ".set __stack, %0" :: "i" (RAMEND) );
+// this is already done in __jumpMain
+/*	asm volatile ( ".set __stack, %0" :: "i" (RAMEND) );
 	asm volatile ( "ldi	16, %0" :: "i" (RAMEND >> 8) );
 	asm volatile ( "out %0,16" :: "i" (AVR_STACK_POINTER_HI_ADDR) );
 	asm volatile ( "ldi	16, %0" :: "i" (RAMEND & 0x0ff) );
-	asm volatile ( "out %0,16" :: "i" (AVR_STACK_POINTER_LO_ADDR) );
+	asm volatile ( "out %0,16" :: "i" (AVR_STACK_POINTER_LO_ADDR) );*/ 
 
 #ifdef _FIX_ISSUE_181_
 	//************************************************************************
@@ -721,7 +760,58 @@ int main(void)
 	// check if WDT generated the reset, if so, go straight to app
 	if (mcuStatusReg & _BV(WDRF))
 	{
-		app_start();
+		if (boot_app_magic == 0x55aa55aa)
+		{
+///			uint16_t tmp_boot_copy_size = boot_copy_size;
+///			uint32_t tmp_boot_src_addr = boot_src_addr;
+
+			address = boot_dst_addr;
+			address_t pageAddress = address;
+			while (boot_copy_size)
+			{
+				if (boot_app_flags & BOOT_APP_FLG_ERASE)
+				{
+					boot_page_erase(pageAddress);
+					boot_spm_busy_wait();
+				}
+				pageAddress += SPM_PAGESIZE;
+				if ((boot_app_flags & BOOT_APP_FLG_COPY))
+				{
+					while (boot_copy_size && (address < pageAddress))
+					{
+						uint16_t word = 0x0000;
+						if (boot_app_flags & BOOT_APP_FLG_FLASH)
+							word = pgm_read_word_far(boot_src_addr); //from FLASH
+						else
+							word = *((uint16_t*)boot_src_addr); //from RAM
+						boot_page_fill(address, word);
+						address	+= 2;
+						boot_src_addr += 2;
+						if (boot_copy_size > 2)
+							boot_copy_size -= 2;
+						else
+							boot_copy_size = 0;
+					}
+					boot_page_write(pageAddress - SPM_PAGESIZE);
+					boot_spm_busy_wait();
+					boot_rww_enable();
+				}
+				else
+				{
+					address	+= SPM_PAGESIZE;
+					if (boot_copy_size > SPM_PAGESIZE)
+						boot_copy_size -= SPM_PAGESIZE;
+					else
+						boot_copy_size = 0;
+				}
+			}
+///			boot_copy_size = tmp_boot_copy_size;
+///			boot_src_addr = tmp_boot_src_addr;
+
+		}
+		goto exit;
+// original implementation app_start() does not work
+//		app_start();
 	}
 	//************************************************************************
 #endif
@@ -779,12 +869,27 @@ int main(void)
     lcd_init();
     lcd_clrscr();
     lcd_goto(0);
-    lcd_puts("boot");
+/*	if (boot_app_magic == 0x55aa55aa)
+	{
+		lcd_print_hex_dword(boot_src_addr);
+		lcd_putc(' ');
+		lcd_print_hex_dword(boot_dst_addr);
+	    lcd_goto(42);
+		lcd_print_hex_word(boot_copy_size);
+		lcd_putc(' ');
+		lcd_print_hex_word(boot_app_flags);
+		lcd_putc(' ');
+		lcd_print_hex_dword(boot_app_magic);
+		boot_app_magic = 0x00000000;
+		while(1);
+	}*/
+	lcd_puts("boot");
     lcd_goto(23);
     lcd_puts(" 3D  Printers");
     lcd_goto(45);
     lcd_puts("   Original Prusa");
 #endif //LCD_HD44780
+
 
 #ifdef EINSYBOARD
     blinkBootLed(0);
@@ -954,47 +1059,15 @@ int main(void)
 			if (flashSize == 0)
 			{
 				animationTimer++;
-				if (animationTimer > 10) {
+				if (animationTimer > 10)
+				{
 					animationTimer = 0;
 					animationFrame++;
-					if (animationFrame>5) {
-						animationFrame = 0;
-					}
-					// clear all first
-					/*lcd_goto(19);
-					lcd_puts(" ");
-					lcd_goto(39);
-					lcd_puts(" ");*/
+					if (animationFrame > 5) animationFrame = 0;
 					lcd_goto(91);
 					lcd_puts("|    |");
-					/*lcd_goto(83);
-					lcd_puts(" ");*/
-					switch (animationFrame) {
-					case 0:
-						lcd_goto(92);
-						lcd_puts("*");
-						break;
-					case 1:
-						lcd_goto(93);
-						lcd_puts("*");
-						break;
-					case 2:
-						lcd_goto(94);
-						lcd_puts("*");
-						break;
-					case 3:
-						lcd_goto(95);
-						lcd_puts("*");
-						break;
-					case 4:
-						lcd_goto(94);
-						lcd_puts("*");
-						break;
-					case 5:
-						lcd_goto(93);
-						lcd_puts("*");
-						break;
-					}
+					lcd_goto((animationFrame <= 3)?(92 + animationFrame):(98 - animationFrame));
+					lcd_putc('*');
 				}
 			}
 #endif //LCD_HD44780_ANIMATION
@@ -1413,7 +1486,7 @@ int main(void)
 	delay_ms(100);							// delay after exit
 #endif
 
-
+exit:
 	asm volatile ("nop");			// wait until port has changed
 
 	/*
