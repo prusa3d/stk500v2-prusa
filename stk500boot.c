@@ -493,7 +493,7 @@ void delay_ms(unsigned int timedelay)
 		_delay_ms(0.5);
 	}
 }
-/**/
+/*
 void lcd_print_hex_nibble(uint8_t val)
 {
 	lcd_putc((val > 9)?('A' + val - 10):('0' + val));
@@ -517,8 +517,12 @@ void lcd_print_hex_dword(uint32_t val)
 	lcd_print_hex_word(val & 0xffff);
 }
 /**/
-
-
+/*
+const unsigned long ulFlashEnd = FLASHEND;
+const unsigned long ulRamEnd = RAMEND;
+const unsigned long ulBootSize = BOOTSIZE;
+const unsigned long ulAppEnd = APP_END;
+*/
 //*****************************************************************************
 /*
  * send single byte to USART, wait until transmission is completed
@@ -683,8 +687,12 @@ void blinkBootLed(int state)
         PORTB = 0b00000000;
 }
 
+//Heaters off (PG5=0, PE5=0)
+//Fans on (PH5=1, PH3=1)
+//Motors off (PA4..7=1)
 void pinsToDefaultState()
 {
+/*
     DDRG = 0b00001000;
     DDRE = 0b00001000;
     DDRH = 0b00101000;
@@ -693,7 +701,15 @@ void pinsToDefaultState()
     PORTH = 0b00101000;
     PORTG = 0b00000000;
     PORTE = 0b00000000;
-    PORTA = 0b00000000;
+    PORTA = 0b00000000;*/ //original code
+	DDRA |= 0b11110000; //PA4..7 out
+	PORTA |= 0b11110000; //PA4..7 = 0
+	DDRE |= 0b00100000; //PE5 out
+	PORTE &= 0b11011111; //PE5 = 0
+	DDRG |= 0b00100000; //PG5 out
+	PORTG &= 0b11011111; //PG5 = 0
+	DDRH |= 0b00101000; //PH5, PH3 out
+	PORTH |= 0b00101000; //PH5, PH3 = 1
 }
 
 #endif //EINSYBOARD
@@ -883,11 +899,18 @@ int main(void)
 		boot_app_magic = 0x00000000;
 		while(1);
 	}*/
-	lcd_puts("boot");
+/*	lcd_puts("B");
+    lcd_goto(21);
+    lcd_puts("Original Prusa i3");
+    lcd_goto(47);
+    lcd_puts("Prusa Research");*/
+    lcd_goto(65);
+    lcd_puts("Original Prusa i3");
     lcd_goto(23);
-    lcd_puts(" 3D  Printers");
-    lcd_goto(45);
-    lcd_puts("   Original Prusa");
+    lcd_puts("Prusa Research");
+    lcd_goto(90);
+	lcd_puts("boot...");
+
 #endif //LCD_HD44780
 
 
@@ -1336,29 +1359,30 @@ int main(void)
 							}
 
 							// erase only main section (bootloader protection)
-							if (eraseAddress < APP_END )
-							{
-								boot_page_erase(eraseAddress);	// Perform page erase
-								boot_spm_busy_wait();		// Wait until the memory is erased.
-								eraseAddress += SPM_PAGESIZE;	// point to next page to be erase
+							if (eraseAddress < APP_END ) //erase and write only blocks with address less 0x3e000
+							{ //because prevent "brick"
+									boot_page_erase(eraseAddress);	// Perform page erase
+									boot_spm_busy_wait();		// Wait until the memory is erased.
+									eraseAddress += SPM_PAGESIZE;	// point to next page to be erase
 							}
+							if (address < APP_END)
+							{
+								/* Write FLASH */
+								do {
+									lowByte		=	*p++;
+									highByte 	=	*p++;
 
-							/* Write FLASH */
-							do {
-								lowByte		=	*p++;
-								highByte 	=	*p++;
+									data		=	(highByte << 8) | lowByte;
+									boot_page_fill(address,data);
 
-								data		=	(highByte << 8) | lowByte;
-								boot_page_fill(address,data);
+									address	=	address + 2;	// Select next word in memory
+									size	-=	2;				// Reduce number of bytes to write by two
+								} while (size);					// Loop until all bytes written
 
-								address	=	address + 2;	// Select next word in memory
-								size	-=	2;				// Reduce number of bytes to write by two
-							} while (size);					// Loop until all bytes written
-
-							boot_page_write(tempaddress);
-							boot_spm_busy_wait();
-							boot_rww_enable();				// Re-enable the RWW section
-
+								boot_page_write(tempaddress);
+								boot_spm_busy_wait();
+								boot_rww_enable();				// Re-enable the RWW section
+							}
 						}
 						else
 						{
