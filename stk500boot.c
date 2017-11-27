@@ -703,7 +703,7 @@ void pinsToDefaultState()
     PORTE = 0b00000000;
     PORTA = 0b00000000;*/ //original code
 	DDRA |= 0b11110000; //PA4..7 out
-	PORTA |= 0b11110000; //PA4..7 = 0
+	PORTA |= 0b11110000; //PA4..7 = 1
 	DDRE |= 0b00100000; //PE5 out
 	PORTE &= 0b11011111; //PE5 = 0
 	DDRG |= 0b00100000; //PG5 out
@@ -908,8 +908,10 @@ int main(void)
     lcd_puts("Original Prusa i3");
     lcd_goto(23);
     lcd_puts("Prusa Research");
-    lcd_goto(90);
-	lcd_puts("boot...");
+//    lcd_goto(90);
+//	lcd_puts("boot...    ...");
+    lcd_goto(101);
+	lcd_puts("...");
 
 #endif //LCD_HD44780
 
@@ -1067,9 +1069,9 @@ int main(void)
 			}	//	while(msgParseState)
 
 #ifdef LCD_HD44780
-            lcd_goto(0);
             if (messageShown == 0)
 			{
+			    lcd_clrscr();
                 lcd_goto(20);
                 lcd_puts(" Do not disconnect!");
                 lcd_goto(45);
