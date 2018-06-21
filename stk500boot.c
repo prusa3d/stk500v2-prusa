@@ -493,7 +493,7 @@ void delay_ms(unsigned int timedelay)
 		_delay_ms(0.5);
 	}
 }
-/*
+#if 0
 void lcd_print_hex_nibble(uint8_t val)
 {
 	lcd_putc((val > 9)?('A' + val - 10):('0' + val));
@@ -516,13 +516,12 @@ void lcd_print_hex_dword(uint32_t val)
 	lcd_print_hex_word(val >> 16);
 	lcd_print_hex_word(val & 0xffff);
 }
-/**/
-/*
+
 const unsigned long ulFlashEnd = FLASHEND;
 const unsigned long ulRamEnd = RAMEND;
 const unsigned long ulBootSize = BOOTSIZE;
 const unsigned long ulAppEnd = APP_END;
-*/
+#endif //if 0
 //*****************************************************************************
 /*
  * send single byte to USART, wait until transmission is completed
@@ -690,7 +689,7 @@ void blinkBootLed(int state)
 //Heaters off (PG5=0, PE5=0)
 //Fans on (PH5=1, PH3=1)
 //Motors off (PA4..7=1)
-void pinsToDefaultState()
+void pinsToDefaultState(void)
 {
 /*
     DDRG = 0b00001000;
