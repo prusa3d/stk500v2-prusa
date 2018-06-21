@@ -839,7 +839,7 @@ int main(void)
 #ifdef BLINK_LED_WHILE_WAITING
 //	boot_timeout	=	 90000;		//*	should be about 4 seconds
 //	boot_timeout	=	170000;
-	boot_timeout	=	 20000;		//*	should be about 1 second
+	boot_timeout	=	 600000ul;		//*	should be about 1 second
 #else
 	boot_timeout	=	3500000; // 7 seconds , approx 2us per step when optimize "s"
 #endif
