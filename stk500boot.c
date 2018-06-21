@@ -654,7 +654,7 @@ static unsigned char recchar_timeout(void)
 }
 
 #ifdef DUALSERIAL
-void initUart()
+void initUart(void)
 {
 	// init uart0
 	UART_STATUS_REG0	|=	(1 <<UART_DOUBLE_SPEED0);
@@ -748,9 +748,9 @@ int main(void)
 	unsigned char	c, *p;
 	unsigned char   isLeave = 0;
 
-	unsigned long	boot_timeout;
-	unsigned long	boot_timer;
-	unsigned int	boot_state;
+	unsigned long	boot_timeout = 600000ul; //* should be about 30 seconds
+	unsigned long	boot_timer   =   0;
+	unsigned int	boot_state  =   0;
 
 	//*	some chips dont set the stack properly
 // this is already done in __jumpMain
@@ -833,16 +833,6 @@ int main(void)
 #endif
 
 
-	boot_timer	=	0;
-	boot_state	=	0;
-
-#ifdef BLINK_LED_WHILE_WAITING
-//	boot_timeout	=	 90000;		//*	should be about 4 seconds
-//	boot_timeout	=	170000;
-	boot_timeout	=	 600000ul;		//*	should be about 1 second
-#else
-	boot_timeout	=	3500000; // 7 seconds , approx 2us per step when optimize "s"
-#endif
 	/*
 	 * Branch to bootloader or application code ?
 	 */
