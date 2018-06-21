@@ -748,7 +748,7 @@ int main(void)
 	unsigned char	c, *p;
 	unsigned char   isLeave = 0;
 
-	unsigned long	boot_timeout = 600000ul; //* should be about 30 seconds
+	unsigned long	boot_timeout = 100000ul; //* should be about 5 seconds
 	unsigned long	boot_timer   =   0;
 	unsigned int	boot_state  =   0;
 
