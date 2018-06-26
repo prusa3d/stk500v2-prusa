@@ -731,6 +731,7 @@ void pinsToDefaultState(void)
 #define BOOT_APP_FLG_ERASE 0x01
 #define BOOT_APP_FLG_COPY  0x02
 #define BOOT_APP_FLG_FLASH 0x04
+#define BOOT_APP_FLG_RUN   0x08 //!< Do not jump to application immediately
 	
 
 //*****************************************************************************
@@ -822,12 +823,13 @@ int main(void)
 			}
 ///			boot_copy_size = tmp_boot_copy_size;
 ///			boot_src_addr = tmp_boot_src_addr;
-
+			if (boot_app_flags & BOOT_APP_FLG_RUN)goto start;
 		}
 		goto exit;
 // original implementation app_start() does not work
 //		app_start();
 	}
+	start:
 	//************************************************************************
 #endif
 
