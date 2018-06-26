@@ -152,7 +152,7 @@ static unsigned char PrevCmdInvolvedAddressCounter=0;
 static unsigned char ActiveDisplay=1;
 #endif
 
-static inline void lcd_e_port_low()
+static inline void lcd_e_port_low(void)
 {
   #if (LCD_DISPLAYS>1)
   switch (ActiveDisplay)
@@ -175,7 +175,7 @@ static inline void lcd_e_port_low()
   #endif
 }
 
-static inline void lcd_e_port_high()
+static inline void lcd_e_port_high(void)
 {
   #if (LCD_DISPLAYS>1)
   switch (ActiveDisplay)
@@ -198,7 +198,7 @@ static inline void lcd_e_port_high()
   #endif
 }
 
-static inline void lcd_e_ddr_low()
+static inline void lcd_e_ddr_low(void)
 {
   #if (LCD_DISPLAYS>1)
   switch (ActiveDisplay)
@@ -221,7 +221,7 @@ static inline void lcd_e_ddr_low()
   #endif
 }
 
-static inline void lcd_e_ddr_high()
+static inline void lcd_e_ddr_high(void)
 {
   #if (LCD_DISPLAYS>1)
   switch (ActiveDisplay)

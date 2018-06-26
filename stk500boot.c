@@ -404,15 +404,15 @@ LICENSE:
 #define	UART_DATA_REG0				UDR0
 #define	UART_DOUBLE_SPEED0			U2X0
 
-#define	UART_BAUD_RATE_LOW2			UBRR2L
-#define	UART_STATUS_REG2			UCSR2A
-#define	UART_CONTROL_REG2			UCSR2B
-#define	UART_ENABLE_TRANSMITTER2	TXEN2
-#define	UART_ENABLE_RECEIVER2		RXEN2
-#define	UART_TRANSMIT_COMPLETE2		TXC2
-#define	UART_RECEIVE_COMPLETE2		RXC2
-#define	UART_DATA_REG2				UDR2
-#define	UART_DOUBLE_SPEED2			U2X2
+#define	UART_BAUD_RATE_LOW2			UBRR1L
+#define	UART_STATUS_REG2			UCSR1A
+#define	UART_CONTROL_REG2			UCSR1B
+#define	UART_ENABLE_TRANSMITTER2	TXEN1
+#define	UART_ENABLE_RECEIVER2		RXEN1
+#define	UART_TRANSMIT_COMPLETE2		TXC1
+#define	UART_RECEIVE_COMPLETE2		RXC1
+#define	UART_DATA_REG2				UDR1
+#define	UART_DOUBLE_SPEED2			U2X1
 
 #endif //DUALSERIAL
 
@@ -493,7 +493,7 @@ void delay_ms(unsigned int timedelay)
 		_delay_ms(0.5);
 	}
 }
-/*
+#if 0
 void lcd_print_hex_nibble(uint8_t val)
 {
 	lcd_putc((val > 9)?('A' + val - 10):('0' + val));
@@ -516,13 +516,12 @@ void lcd_print_hex_dword(uint32_t val)
 	lcd_print_hex_word(val >> 16);
 	lcd_print_hex_word(val & 0xffff);
 }
-/**/
-/*
+
 const unsigned long ulFlashEnd = FLASHEND;
 const unsigned long ulRamEnd = RAMEND;
 const unsigned long ulBootSize = BOOTSIZE;
 const unsigned long ulAppEnd = APP_END;
-*/
+#endif //if 0
 //*****************************************************************************
 /*
  * send single byte to USART, wait until transmission is completed
@@ -654,7 +653,7 @@ static unsigned char recchar_timeout(void)
 }
 
 #ifdef DUALSERIAL
-void initUart()
+void initUart(void)
 {
 	// init uart0
 	UART_STATUS_REG0	|=	(1 <<UART_DOUBLE_SPEED0);
@@ -690,7 +689,7 @@ void blinkBootLed(int state)
 //Heaters off (PG5=0, PE5=0)
 //Fans on (PH5=1, PH3=1)
 //Motors off (PA4..7=1)
-void pinsToDefaultState()
+void pinsToDefaultState(void)
 {
 /*
     DDRG = 0b00001000;
@@ -732,6 +731,7 @@ void pinsToDefaultState()
 #define BOOT_APP_FLG_ERASE 0x01
 #define BOOT_APP_FLG_COPY  0x02
 #define BOOT_APP_FLG_FLASH 0x04
+#define BOOT_APP_FLG_RUN   0x08 //!< Do not jump to application immediately
 	
 
 //*****************************************************************************
@@ -748,9 +748,9 @@ int main(void)
 	unsigned char	c, *p;
 	unsigned char   isLeave = 0;
 
-	unsigned long	boot_timeout;
-	unsigned long	boot_timer;
-	unsigned int	boot_state;
+	unsigned long	boot_timeout = 20000ul; // should be about 1 second
+	unsigned long	boot_timer   =   0;
+	unsigned int	boot_state  =   0;
 
 	//*	some chips dont set the stack properly
 // this is already done in __jumpMain
@@ -778,8 +778,7 @@ int main(void)
 	{
 		if (boot_app_magic == 0x55aa55aa)
 		{
-///			uint16_t tmp_boot_copy_size = boot_copy_size;
-///			uint32_t tmp_boot_src_addr = boot_src_addr;
+            if (boot_app_flags & BOOT_APP_FLG_RUN)goto start;
 
 			address = boot_dst_addr;
 			address_t pageAddress = address;
@@ -823,26 +822,16 @@ int main(void)
 			}
 ///			boot_copy_size = tmp_boot_copy_size;
 ///			boot_src_addr = tmp_boot_src_addr;
-
 		}
 		goto exit;
 // original implementation app_start() does not work
 //		app_start();
 	}
+	start:
 	//************************************************************************
 #endif
 
 
-	boot_timer	=	0;
-	boot_state	=	0;
-
-#ifdef BLINK_LED_WHILE_WAITING
-//	boot_timeout	=	 90000;		//*	should be about 4 seconds
-//	boot_timeout	=	170000;
-	boot_timeout	=	 20000;		//*	should be about 1 second
-#else
-	boot_timeout	=	3500000; // 7 seconds , approx 2us per step when optimize "s"
-#endif
 	/*
 	 * Branch to bootloader or application code ?
 	 */
