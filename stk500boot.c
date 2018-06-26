@@ -778,8 +778,7 @@ int main(void)
 	{
 		if (boot_app_magic == 0x55aa55aa)
 		{
-///			uint16_t tmp_boot_copy_size = boot_copy_size;
-///			uint32_t tmp_boot_src_addr = boot_src_addr;
+            if (boot_app_flags & BOOT_APP_FLG_RUN)goto start;
 
 			address = boot_dst_addr;
 			address_t pageAddress = address;
@@ -823,7 +822,6 @@ int main(void)
 			}
 ///			boot_copy_size = tmp_boot_copy_size;
 ///			boot_src_addr = tmp_boot_src_addr;
-			if (boot_app_flags & BOOT_APP_FLG_RUN)goto start;
 		}
 		goto exit;
 // original implementation app_start() does not work
