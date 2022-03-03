@@ -970,6 +970,20 @@ int main(void)
 
 	if (boot_state==1)
 	{
+		// Signal to the firmware the uart that is used
+#ifdef DUALSERIAL
+		if (selectedSerial == 0)
+		{
+			GPIOR0 = 0x01; //primary uart
+		}
+		else
+		{
+			GPIOR0 = 0x02; //secondary uart
+		}
+#else //DUALSERIAL
+		GPIOR0 = 0x01; //primary uart
+#endif //DUALSERIAL
+		
 		//*	main loop
 		while (!isLeave)
 		{
@@ -1500,6 +1514,11 @@ int main(void)
 		#endif
 
 		}
+	}
+	else if (boot_state == 2)
+	{
+		//no character received. Signal timeout.
+		GPIOR0 = 0xFF;
 	}
 
 
