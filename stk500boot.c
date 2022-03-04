@@ -974,14 +974,14 @@ int main(void)
 #ifdef DUALSERIAL
 		if (selectedSerial == 0)
 		{
-			GPIOR0 = 0x01; //primary uart
+			GPIOR0 = 0x00; //primary uart
 		}
 		else
 		{
-			GPIOR0 = 0x02; //secondary uart
+			GPIOR0 = 0x01; //secondary uart
 		}
 #else //DUALSERIAL
-		GPIOR0 = 0x01; //primary uart
+		GPIOR0 = 0x00; //primary uart
 #endif //DUALSERIAL
 		
 		//*	main loop
@@ -1518,7 +1518,7 @@ int main(void)
 	else if (boot_state == 2)
 	{
 		//no character received. Signal timeout.
-		GPIOR0 = 0xFF;
+		GPIOR0 = 0x00;
 	}
 
 
