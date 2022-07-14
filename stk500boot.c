@@ -1074,7 +1074,7 @@ int main(void)
 			    lcd_clrscr();
                 lcd_goto(20);
                 lcd_puts(" Do not disconnect!");
-                lcd_goto(45);
+                lcd_goto(64);
                 lcd_puts(" Upgrading firmware");
                 messageShown = 1;
             }
